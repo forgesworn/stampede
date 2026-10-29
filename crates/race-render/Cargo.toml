@@ -1,0 +1,20 @@
+[package]
+name = "race-render"
+description = "Stampede's wgpu 3D renderer: procedural low-poly meshes, ostrich rig, particles, cameras, mirror pass."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+wgpu = { version = "29", default-features = false, features = ["std", "parking_lot", "wgsl", "vulkan", "gles"] }
+glam = "0.29"
+bytemuck = { version = "1", features = ["derive"] }
+log = "0.4"
+
+[dev-dependencies]
+png = "0.18"
+pollster = "0.4"
+
+[[example]]
+name = "showcase"
+path = "examples/showcase.rs"

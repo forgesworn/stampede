@@ -1,0 +1,119 @@
+# The Keep and its Proton tunnel in ONE image, for hosts that run one container per app
+# (the Archipelago node's app manifests have no sidecars and no shared network namespace).
+#
+# gluetun (the tunnel and its firewall) and stampede-headless run in the same container:
+# one entrypoint starts gluetun, waits for Proton's forwarded port and exit address, then
+# starts the Keep on that port, announcing that address and, if the node gives it
+# (INGLE_HOME_ADVERTISE), its home-network address on UDP 47800 for phones on the home Wi-Fi.
+# gluetun's firewall is the kill switch: if the tunnel is down, the Keep's traffic goes
+# nowhere. The Keep runs as an unprivileged user with no capabilities, so it cannot touch the
+# firewall.
+# The binary is built on the host first (see build-image-proton.sh); nothing is compiled here.
+#
+# Needs: NET_ADMIN, SETUID, SETGID (the entrypoint drops to the keep user) and /dev/net/tun.
+# The WireGuard key arrives as WIREGUARD_PRIVATE_KEY at run time; it is never in the image.
+FROM qmcgaw/gluetun:v3.41.3@sha256:fa19cc76b2af13d57a8d3dc3066f2ada061b1c761b8aecf989b3877c0486e027 AS gluetun
+
+FROM ubuntu:24.04
+
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends ca-certificates iptables iproute2 openvpn \
+ && rm -rf /var/lib/apt/lists/* \
+ && mkdir /gluetun \
+ && ln -s /usr/sbin/openvpn /usr/local/bin/openvpn2.6 \
+ && groupadd --system --gid 999 keep \
+ && useradd --system --uid 999 --gid 999 --create-home --home-dir /var/lib/stampede-keep --shell /usr/sbin/nologin keep
+
+# gluetun is a static binary; it needs iptables, certificates and a writable /tmp. It looks for
+# an openvpn2.6 binary at start even when WireGuard is the tunnel type, so openvpn is installed
+# and linked under that name; it is never run.
+# It makes /gluetun if it is missing, which a read-only root cannot, so the folder is made here.
+# It also reads /etc/alpine-release at start (to log the OS version) and stops without it;
+# this file is only that, not an Alpine system.
+COPY --from=gluetun /gluetun-entrypoint /usr/local/bin/gluetun
+COPY --from=gluetun /etc/alpine-release /etc/alpine-release
+
+# The Keep's identity and invites live here; keep it on a volume so they survive an image
+# update. Made here so a new volume starts owned by the keep user.
+RUN mkdir -p /var/lib/stampede-keep/data \
+ && chown keep:keep /var/lib/stampede-keep/data \
+ && chmod 700 /var/lib/stampede-keep/data
+VOLUME /var/lib/stampede-keep/data
+
+COPY --chown=root:root stampede-headless /usr/local/bin/stampede-headless
+COPY --chown=root:root ingle-entrypoint.sh /usr/local/bin/ingle-entrypoint.sh
+RUN chmod 0755 /usr/local/bin/ingle-entrypoint.sh /usr/local/bin/stampede-headless
+
+# Extra firewall rules, added by gluetun after its own. They pin the Keep user (uid 999) to
+# the tunnel, for IPv4 and IPv6 alike. It may use loopback (but not gluetun's control and
+# health ports there), the tunnel interface, replies to a status-page connection that came in
+# (an ESTABLISHED flow from port 8780: it cannot open one, so it cannot reach the local network
+# by binding that source port), replies to a game flow that came in on UDP 47800 from the home
+# network (the same ESTABLISHED, reply-direction rule, keyed on the flow's original destination
+# port because the entrypoint redirects 47800 to the Keep's real port), and, for IPv4, the
+# tunnel's own encrypted packets, which carry the sending socket's owner and gluetun's mark
+# 0xca6c (a user without NET_ADMIN cannot set a mark). Everything else from it is dropped.
+# Without these rules the firewall's allowances for the local subnets, the VPN endpoint and
+# established flows would let the Keep use the host's own route, on any local IPv4 or IPv6
+# network. The rules are in the mangle table, which runs before the filter table: gluetun
+# lists the filter table's OUTPUT chain to manage its own rules and fails on a rule with an
+# owner match or a jump to a chain of ours, so none may sit there. Other users never enter
+# the chain. The last two lines drop anything arriving from the tunnel for the status page's
+# port, whatever Proton forwards.
+RUN mkdir /iptables \
+ && printf '%s\n' \
+    'iptables -t mangle -N KEEPUSER' \
+    'iptables -t mangle -A KEEPUSER -o lo -p tcp -m multiport --dports 8000,9999 -j DROP' \
+    'iptables -t mangle -A KEEPUSER -p tcp --sport 8780 -m conntrack --ctstate ESTABLISHED -j RETURN' \
+    'iptables -t mangle -A KEEPUSER -p udp -m conntrack --ctstate ESTABLISHED --ctdir REPLY --ctorigdstport 47800 -j RETURN' \
+    'iptables -t mangle -A KEEPUSER -o lo -j RETURN' \
+    'iptables -t mangle -A KEEPUSER -o wg0 -j RETURN' \
+    'iptables -t mangle -A KEEPUSER -m mark --mark 0xca6c -j RETURN' \
+    'iptables -t mangle -A KEEPUSER -j DROP' \
+    'iptables -t mangle -A OUTPUT -m owner --uid-owner 999 -j KEEPUSER' \
+    'iptables -t mangle -A PREROUTING -i wg0 -p tcp --dport 8780 -j DROP' \
+    'ip6tables -t mangle -N KEEPUSER' \
+    'ip6tables -t mangle -A KEEPUSER -o lo -p tcp -m multiport --dports 8000,9999 -j DROP' \
+    'ip6tables -t mangle -A KEEPUSER -p tcp --sport 8780 -m conntrack --ctstate ESTABLISHED -j RETURN' \
+    'ip6tables -t mangle -A KEEPUSER -o lo -j RETURN' \
+    'ip6tables -t mangle -A KEEPUSER -o wg0 -j RETURN' \
+    'ip6tables -t mangle -A KEEPUSER -j DROP' \
+    'ip6tables -t mangle -A OUTPUT -m owner --uid-owner 999 -j KEEPUSER' \
+    'ip6tables -t mangle -A PREROUTING -i wg0 -p tcp --dport 8780 -j DROP' \
+    > /iptables/post-rules.txt
+
+# Tunnel settings: Proton, WireGuard, port-forwarding servers only. Nothing secret here.
+# The PPROF settings are gluetun's own image defaults, which it needs set (it crashes without them);
+# the control server stays on localhost with no routes open. SERVER_COUNTRIES (and the like) can be set at run time. State goes under /tmp so the
+# root filesystem can stay read-only.
+ENV VPN_SERVICE_PROVIDER=protonvpn \
+    VPN_TYPE=wireguard \
+    PORT_FORWARD_ONLY=on \
+    VPN_PORT_FORWARDING=on \
+    VPN_PORT_FORWARDING_PROVIDER=protonvpn \
+    VPN_PORT_FORWARDING_STATUS_FILE=/tmp/gluetun/forwarded_port \
+    PUBLICIP_ENABLED=on \
+    PUBLICIP_FILE=/tmp/gluetun/ip \
+    STORAGE_FILEPATH=/tmp/gluetun/servers.json \
+    FIREWALL_INPUT_PORTS=8780 \
+    HTTP_CONTROL_SERVER_ADDRESS=127.0.0.1:8000 \
+    BLOCK_MALICIOUS=off \
+    VERSION_INFORMATION=off \
+    OPENVPN_VERSION=2.6 \
+    UPDATER_PERIOD=0 \
+    PUID=0 \
+    PGID=0 \
+    BLOCK_SURVEILLANCE=off \
+    BLOCK_ADS=off \
+    HTTP_CONTROL_SERVER_AUTH_CONFIG_FILEPATH=/tmp/gluetun/auth/config.toml \
+    PPROF_ENABLED=no \
+    PPROF_BLOCK_PROFILE_RATE=0 \
+    PPROF_MUTEX_PROFILE_RATE=0 \
+    PPROF_HTTP_SERVER_ADDRESS=127.0.0.1:6060
+
+WORKDIR /var/lib/stampede-keep
+STOPSIGNAL SIGTERM
+# Runs as root (the tunnel needs it); the Keep itself is started as the keep user.
+# Arguments after the image name are the Keep's own flags. The entrypoint adds
+# --quic-port and --advertise from Proton's forwarded port and exit address.
+ENTRYPOINT ["/usr/local/bin/ingle-entrypoint.sh"]

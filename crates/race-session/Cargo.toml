@@ -1,0 +1,71 @@
+[package]
+name = "race-session"
+description = "Stampede's race protocol: lobby, host authority, client prediction, transports (loopback + QUIC over decented-net)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+fray-session = { path = "../../../forgesworn/fray/crates/fray-session", default-features = false, features = ["authority"] }
+nostr = { version = "=0.44.8", default-features = false, features = ["nip44"], optional = true }
+decented-signet = { path = "../../../TwangThang/crates/decented-signet", optional = true }
+race-core = { path = "../race-core" }
+decented-net = { package = "fray-net", path = "../../../forgesworn/fray/crates/decented-net", optional = true }
+fray-keep = { path = "../../../forgesworn/fray/crates/fray-keep", optional = true }
+bincode = "1.3"
+serde = { version = "1", features = ["derive"] }
+log = "0.4"
+rand = { version = "0.8", default-features = false, features = ["std"], optional = true }
+rand_pcg = { version = "0.3", optional = true }
+getrandom = { version = "0.3", optional = true }
+
+serde_json = { version = "1", optional = true }
+ctrlc = { version = "3", features = ["termination"], optional = true }
+
+[features]
+# The headless host's SIGTERM/SIGINT handler. On by default so `cargo test` and
+# the deploy build see the binary; the phone app turns the defaults off.
+default = ["native", "authority", "headless"]
+# Pure rules/checkpoints and the Fray adapter, with no platform services.
+authority = []
+native = ["dep:nostr", "dep:decented-signet", "dep:decented-net", "dep:fray-keep", "dep:rand", "dep:rand_pcg", "dep:getrandom", "dep:serde_json"]
+headless = ["native", "dep:ctrlc"]
+
+[[bin]]
+name = "stampede-headless"
+path = "src/bin/stampede-headless.rs"
+required-features = ["headless"]
+
+# Spawns the headless binary.
+[[test]]
+name = "headless"
+required-features = ["headless"]
+
+[dev-dependencies]
+# The owner smoke example (examples/k1d_owner_smoke.rs) makes its wraps with
+# nostr's own NIP-59 code, so it cross-checks the Keep's hand-written wrap.
+nostr = { version = "=0.44.8", default-features = false, features = ["std", "nip44", "nip59"] }
+tokio = { version = "1", features = ["rt", "time", "net", "sync"] }
+# The NIP-42 test's loopback relay (tests of the Keep's relay connections).
+tokio-tungstenite = "0.26.2"
+futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
+
+[[test]]
+name = "migration"
+required-features = ["headless"]
+
+[[example]]
+name = "authority_baseline"
+required-features = ["native"]
+
+[[example]]
+name = "k1d_owner_smoke"
+required-features = ["native"]
+
+[[example]]
+name = "k1e_owner_smoke"
+required-features = ["native"]
+
+[[test]]
+name = "authority"
+required-features = ["authority"]

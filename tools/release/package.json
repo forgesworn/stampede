@@ -1,0 +1,15 @@
+{
+  "name": "stampede-release",
+  "private": true,
+  "type": "module",
+  "description": "Publish Stampede Android APK releases as kind-30063 Nostr events on Blossom mirrors.",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "node --test"
+  },
+  "dependencies": {
+    "nostr-tools": "^2.25.0"
+  }
+}

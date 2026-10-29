@@ -1,0 +1,10 @@
+[package]
+name = "race-audio"
+description = "Stampede's synthesised sound bank and music on rodio (no decoders)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+rodio = { version = "0.20", default-features = false }
+log = "0.4"

@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>org.decented.stampede</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+  <name>Stampede</name>
+  <summary>Laser-eyed ostrich racing</summary>
+  <developer id="org.decented">
+    <name>decented</name>
+  </developer>
+  <description>
+    <p>
+      Stampede is a Mario Kart-style arcade racer starring laser-eyed
+      ostriches. Race solo against bots, take on battle arenas, or race
+      friends on the same network.
+    </p>
+    <p>
+      Native Rust with no game engine; the same game also runs on Android.
+    </p>
+  </description>
+  <launchable type="desktop-id">org.decented.stampede.desktop</launchable>
+  <provides>
+    <binary>stampede</binary>
+  </provides>
+  <categories>
+    <category>Game</category>
+    <category>ArcadeGame</category>
+  </categories>
+  <keywords>
+    <keyword>racing</keyword>
+    <keyword>ostrich</keyword>
+    <keyword>arcade</keyword>
+  </keywords>
+  <content_rating type="oars-1.1"/>
+  <supports>
+    <control>pointing</control>
+    <control>keyboard</control>
+    <control>touch</control>
+  </supports>
+  <releases>
+    <release version="@VERSION@" date="@DATE@"/>
+  </releases>
+</component>

@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- SPEC 13: the dark theme colour; the window background, so no white flash. -->
+    <color name="stampede_bg">#120A1F</color>
+</resources>

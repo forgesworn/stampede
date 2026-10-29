@@ -1,0 +1,73 @@
+# Route 2: the Keep behind Proton VPN port forwarding (gluetun). UNTESTED against Proton.
+# Fill in proton.env from proton.env.example first; see README.md, "Route 2".
+# Start with: docker compose -f docker-compose.proton.yml up -d
+# Stop with:  docker compose -f docker-compose.proton.yml down
+# Use this file instead of docker-compose.yml, never both (they share port 8780).
+name: stampede-keep-proton
+
+services:
+  vpn:
+    image: qmcgaw/gluetun:v3.41.3
+    container_name: stampede-keep-vpn
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    # WIREGUARD_PRIVATE_KEY, SERVER_COUNTRIES, SERVER_CITIES, FIREWALL_OUTBOUND_SUBNETS.
+    env_file: proton.env
+    environment:
+      VPN_SERVICE_PROVIDER: protonvpn
+      VPN_TYPE: wireguard
+      # Only P2P (port-forwarding) servers.
+      PORT_FORWARD_ONLY: "on"
+      VPN_PORT_FORWARDING: "on"
+      VPN_PORT_FORWARDING_PROVIDER: protonvpn
+      # gluetun writes the forwarded port and the VPN's public IP here (its defaults);
+      # the keep container reads them from the shared volume below.
+      VPN_PORT_FORWARDING_STATUS_FILE: /tmp/gluetun/forwarded_port
+      PUBLICIP_FILE: /tmp/gluetun/ip
+      PUBLICIP_ENABLED: "on"
+      # The status page lives in this network namespace; let it in on the default interface.
+      FIREWALL_INPUT_PORTS: "8780"
+    # Status page for the home network only. Never forward this on the router.
+    ports:
+      - "8780:8780/tcp"
+    volumes:
+      - gluetun-state:/tmp/gluetun
+    # Only the start period is changed (the image's own check command is kept), so a
+    # slow first connection is not reported unhealthy, which would make `up` give up.
+    healthcheck:
+      start_period: 90s
+    restart: unless-stopped
+
+  keep:
+    image: stampede-keep:k0
+    container_name: stampede-keep
+    network_mode: service:vpn
+    depends_on:
+      vpn:
+        condition: service_healthy
+        restart: true
+    restart: unless-stopped
+    stop_grace_period: 15s
+    # The script waits for the forwarded port, starts the Keep on it, and exits
+    # (so Docker restarts it) when Proton hands out a new port.
+    entrypoint: ["/bin/sh", "/proton-entrypoint.sh"]
+    volumes:
+      - ./proton-entrypoint.sh:/proton-entrypoint.sh:ro
+      - gluetun-state:/gluetun-state:ro
+      # The Keep's identity and invites (shared with docker-compose.yml).
+      - keep-data:/var/lib/stampede-keep/data
+
+volumes:
+  # The same volume as docker-compose.yml, so either route keeps one identity.
+  keep-data:
+    name: stampede-keep-data
+  # Held in memory and emptied when both containers are gone, so a port left over
+  # from an earlier run is never mistaken for a fresh one.
+  gluetun-state:
+    driver: local
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+      o: size=1m,mode=0755

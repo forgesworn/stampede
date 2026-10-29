@@ -1,0 +1,32 @@
+Stampede app (platform layer ported from Twang Thang) — third-party notices
+=====================================
+
+1. Axe'n'Stax (MIT licence), commit bdd4fe877acf3a6f4ca3174d1ce79c6672935e2f
+
+   Patterns adapted (not copied verbatim) from the Axe'n'Stax engine:
+   - boot stack: winit 0.30 ApplicationHandler with GPU created in `resumed`
+     and dropped in `suspended`, android-activity NativeActivity entry
+     (`android_main`), cdylib + rlib crate layout (src/app.rs, src/lib.rs);
+   - wgpu device request with downlevel limits raised to the adapter's
+     resolution (src/render/gpu.rs);
+   - the wgpu 29 surface-acquire handling and the offscreen texture →
+     buffer readback with 256-byte row alignment (src/app.rs,
+     src/render/capture.rs);
+   - egui-wgpu painting in a LoadOp::Load pass and headless egui frames
+     (src/ui/painter.rs, src/engine.rs);
+   - per-finger touch id tracking so lifting one finger never moves another
+     (src/platform/input.rs).
+
+   MIT License — Permission is hereby granted, free of charge, to any person
+   obtaining a copy of this software and associated documentation files (the
+   "Software"), to deal in the Software without restriction, including without
+   limitation the rights to use, copy, modify, merge, publish, distribute,
+   sublicense, and/or sell copies of the Software, and to permit persons to
+   whom the Software is furnished to do so, subject to the following
+   conditions: The above copyright notice and this permission notice shall be
+   included in all copies or substantial portions of the Software. THE SOFTWARE
+   IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED.
+
+2. Fonts (SIL Open Font License 1.1), bundled from github.com/google/fonts:
+   - Orbitron — assets/fonts/orbitron/ (licence: assets/fonts/orbitron/OFL.txt)
+   - Exo 2    — assets/fonts/exo2/     (licence: assets/fonts/exo2/OFL.txt)

@@ -1,0 +1,25 @@
+[workspace]
+resolver = "2"
+members = ["crates/race-core", "crates/race-render", "crates/race-session", "crates/race-authority", "crates/race-audio", "app"]
+
+[workspace.package]
+version = "0.4.14"
+edition = "2021"
+license = "MIT"
+authors = ["decented"]
+
+# Same profiles as Twang Thang on purpose: both workspaces share
+# CARGO_TARGET_DIR=~/.cache/twangthang-target, and identical profiles let the
+# compiled wgpu/winit/egui/quinn/nostr artifacts be reused (disk is tight).
+[profile.dev]
+debug = 0
+opt-level = 1
+incremental = false
+
+[profile.dev.package."*"]
+opt-level = 2
+
+[profile.release]
+lto = "thin"
+strip = true
+codegen-units = 4

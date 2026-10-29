@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Fullscreen, no title bar, dark until the first frame. -->
+    <style name="StampedeTheme" parent="@android:style/Theme.NoTitleBar.Fullscreen">
+        <item name="android:windowBackground">@color/stampede_bg</item>
+        <item name="android:colorBackground">@color/stampede_bg</item>
+    </style>
+</resources>

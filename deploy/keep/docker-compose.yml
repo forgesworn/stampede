@@ -1,0 +1,33 @@
+# Plain route: the Keep shares the box's network, announces its LAN address and
+# whatever STUN / router mapping finds, and serves the status page on port 8780.
+# A race starts once every human in the room is ready (--players N asks for at
+# least N humans first; the default with --online is 1).
+# To announce only a forwarded address instead, add:
+#   --advertise <home public IP>:47800 --advertise-only
+services:
+  keep:
+    image: stampede-keep:k0
+    container_name: stampede-keep
+    network_mode: host
+    restart: unless-stopped
+    stop_grace_period: 15s
+    volumes:
+      # The Keep's identity and its invites. Losing this volume cancels every invite
+      # and gives the Keep a new key.
+      - keep-data:/var/lib/stampede-keep/data
+    command:
+      - --online
+      - --test-identity
+      - --data-dir
+      - /var/lib/stampede-keep/data
+      - --quic-port
+      - "47800"
+      - --status
+      - 0.0.0.0:8780
+      - --seconds
+      - "0"
+
+volumes:
+  # The same volume as docker-compose.proton.yml, so either route keeps one identity.
+  keep-data:
+    name: stampede-keep-data

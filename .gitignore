@@ -1,0 +1,22 @@
+target/
+*.apk
+.claude/
+tools/release/node_modules/
+
+# Internal planning and local captures are kept outside the source repository.
+/docs/local
+/docs/SPEC.md
+/AGENTS.md
+/evidence/
+.codex/
+.env
+.env.*
+*.keystore
+*.jks
+*.p12
+*.pfx
+release-key.hex
+*.bundle
+
+# Proton VPN credentials for deploy/keep (Route 2).
+deploy/keep/proton.env

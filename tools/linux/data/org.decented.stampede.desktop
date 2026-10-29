@@ -1,0 +1,19 @@
+[Desktop Entry]
+Type=Application
+Version=1.5
+Name=Stampede
+GenericName=Racing Game
+Comment=Laser-eyed ostrich racing
+Exec=stampede
+Icon=stampede
+Terminal=false
+Categories=Game;ArcadeGame;
+Keywords=racing;race;ostrich;arcade;kart;bitcoin;
+StartupNotify=true
+StartupWMClass=org.decented.stampede
+# Intel Xe on X11: if frames stall for ~1 s each, use the "no vsync" action below.
+Actions=NoVsync;
+
+[Desktop Action NoVsync]
+Name=Stampede (vsync off, for stalling X11 drivers)
+Exec=env STAMPEDE_NO_VSYNC=1 stampede

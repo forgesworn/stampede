@@ -1,0 +1,69 @@
+[package]
+name = "stampede"
+description = "Stampede: laser-eyed ostrich racing (Android + desktop Linux)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "stampede"
+# rlib for the desktop binary and tests, cdylib for the Android NativeActivity .so.
+crate-type = ["rlib", "cdylib"]
+path = "src/lib.rs"
+
+[[bin]]
+name = "stampede"
+path = "src/main.rs"
+
+# Versions and features are identical to Twang Thang's on purpose: both
+# workspaces share CARGO_TARGET_DIR=~/.cache/twangthang-target, and equal
+# feature sets let the compiled wgpu/winit/egui artifacts be reused.
+[dependencies]
+decented-signet = { path = "../../TwangThang/crates/decented-signet" }
+race-core = { path = "../crates/race-core" }
+race-render = { path = "../crates/race-render" }
+race-audio = { path = "../crates/race-audio" }
+# Not the headless host's signal handling: that stays out of the phone build.
+race-session = { path = "../crates/race-session", default-features = false, features = ["native"] }
+# Only for the LAN room type (`LanRoom`/`LanBrowser`); the transport itself goes through race-session.
+decented-net = { package = "fray-net", path = "../../forgesworn/fray/crates/decented-net" }
+fray-keep = { path = "../../forgesworn/fray/crates/fray-keep" }
+# The shared relay pool (order, health dots, defaults) and the one-shot relay
+# reader in src/nostr_fetch.rs. Versions and features equal decented-net's, so
+# the shared target dir reuses its compiled artifacts.
+decented-relays = { package = "fray-relays", path = "../../forgesworn/fray/crates/decented-relays" }
+nostr = { version = "=0.44.8", features = ["nip44"] }
+tokio = { version = "1", features = ["rt-multi-thread", "net", "sync", "time", "macros"] }
+tokio-tungstenite = { version = "0.26.2", features = ["rustls-tls-webpki-roots"] }
+futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
+glam = "0.29"
+# Native backends only (Vulkan everywhere it exists, GLES as the fallback).
+wgpu = { version = "29", default-features = false, features = ["std", "parking_lot", "wgsl", "vulkan", "gles"] }
+winit = "0.30"
+egui = "0.34"
+egui-wgpu = { version = "0.34", default-features = false, features = ["winit"] }
+bytemuck = { version = "1", features = ["derive"] }
+pollster = "0.4"
+log = "0.4"
+png = "0.18"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[target.'cfg(not(target_os = "android"))'.dependencies]
+# No clipboard backend: text goes through platform::os (xclip / wl-copy).
+egui-winit = { version = "0.34", default-features = false, features = ["x11", "wayland"] }
+env_logger = { version = "0.11", default-features = false, features = ["auto-color"] }
+
+[target.'cfg(target_os = "android")'.dependencies]
+egui-winit = { version = "0.34", default-features = false, features = ["android-native-activity"] }
+winit = { version = "0.30", features = ["android-native-activity"] }
+android-activity = { version = "0.6", features = ["native-activity"] }
+android_logger = "0.14"
+# JNI into the framework (intents, clipboard, Wi-Fi multicast lock, vibrator,
+# immersive mode).
+jni = "0.21"
+ndk-context = "0.1"
+
+[dev-dependencies]
+base64 = "0.22"

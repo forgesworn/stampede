@@ -1,0 +1,145 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Stampede Android manifest (SPEC 1, 12, 13). Built by tools/build-apk.sh with
+  aapt2 and d8: no Gradle. Ported from Twang Thang's.
+
+  hasCode="true"           One small Java class (app/android/java):
+                           .StampedeActivity extends NativeActivity to keep
+                           onNewIntent's intent. The game is libstampede.so,
+                           loaded by NativeActivity, which calls `android_main`.
+                           Every OS service is a JNI call from Rust
+                           (app/src/platform/android.rs).
+  android.app.lib_name     MUST match [lib] name in app/Cargo.toml.
+  launchMode="singleTask"  Exactly one activity instance: a join link
+                           (stampede://join#CODE, or a Keep invite stampede://keep/HOST/SECRET) brings the running game
+                           forward instead of starting a second copy of the
+                           engine. The link arrives in
+                           StampedeActivity.onNewIntent, which stores it with
+                           setIntent; the game reads it over JNI.
+  screenOrientation        sensorLandscape: landscape only, either way up. The
+                           camera cutout is then on the left or right edge;
+                           the game reads all four insets and polls them, so a
+                           180-degree flip is picked up without a new activity.
+  configChanges            Swallow every config change instead of recreating the
+                           activity: a recreation means a new android_main, and
+                           winit allows one EventLoop per process, so the game
+                           ends its process when its activity is destroyed
+                           (app/src/platform/lifecycle.rs).
+  enableOnBackInvokedCallback="false"
+                           Keep KEYCODE_BACK delivered to the game (system Back
+                           = the screen's Back) instead of predictive back.
+  targetSdkVersion 35      Below 36 so predictive back stays opt-in.
+  Theme                    res/values*/styles.xml: fullscreen, no title, the
+                           dark window background (#120A1F, no white flash) and,
+                           on API 28+, drawing under the camera cutout.
+  allowBackup="false"      Nothing leaves the device.
+
+  Permissions: INTERNET (online play), ACCESS_NETWORK_STATE, ACCESS_WIFI_STATE
+  and CHANGE_WIFI_MULTICAST_STATE (Nearby play beacon + MulticastLock), VIBRATE
+  (haptics), WAKE_LOCK (keep the screen on during a race), FOREGROUND_SERVICE and
+  FOREGROUND_SERVICE_DATA_SYNC (RoomService below), REQUEST_INSTALL_PACKAGES
+  (in-app updates and More games, below).
+
+  In-app updates and More games (Updater.java + UpdateReceiver.java; app/src/update.rs
+  and app/src/games.rs decide what to install from a signed nostr release event):
+  REQUEST_INSTALL_PACKAGES lets the app ask Android's installer to replace itself
+  or to install a catalog game. Android keeps its own "Install unknown apps" switch
+  for this app (off by default) and always shows its own confirm prompt, so an
+  install is never silent. UpdateReceiver (not exported) gets the installer's
+  status through the PendingIntent Updater commits with; it must be in the
+  manifest because an update replaces the process. <queries> lists the catalog's
+  packages: since Android 11 an app cannot see another package (to show Get or
+  Open, and to open it) unless it asks for it here. Keep it in step with
+  app/src/games.rs CATALOG.
+
+  RoomService              A silent foreground service that runs only while the
+                           player is in an online room, so Android keeps the
+                           network up when the player leaves the app for more than
+                           a few seconds (newer Android cuts a backgrounded
+                           app's sockets; the room would drop, a hosted one for
+                           everyone). No POST_NOTIFICATIONS request: the service
+                           counts without a visible notification.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="org.decented.stampede">
+
+    <uses-sdk android:minSdkVersion="24" android:targetSdkVersion="35" />
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
+    <uses-permission android:name="android.permission.VIBRATE" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+
+    <queries>
+        <package android:name="org.decented.twangthang" />
+    </queries>
+
+    <uses-feature android:glEsVersion="0x00030000" android:required="true" />
+    <uses-feature android:name="android.hardware.touchscreen.multitouch.distinct" android:required="false" />
+    <uses-feature android:name="android.hardware.wifi" android:required="false" />
+    <uses-feature android:name="android.hardware.sensor.accelerometer" android:required="false" />
+
+    <application
+        android:allowBackup="false"
+        android:label="Stampede"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:appCategory="game"
+        android:hasCode="true"
+        android:enableOnBackInvokedCallback="false"
+        android:extractNativeLibs="true"
+        android:theme="@style/StampedeTheme">
+
+        <activity
+            android:name=".StampedeActivity"
+            android:exported="true"
+            android:label="Stampede"
+            android:launchMode="singleTask"
+            android:screenOrientation="fullUser"
+            android:theme="@style/StampedeTheme"
+            android:configChanges="orientation|keyboardHidden|keyboard|navigation|screenSize|screenLayout|density|smallestScreenSize|uiMode|locale|layoutDirection|fontScale|fontWeightAdjustment|colorMode|touchscreen|mcc|mnc|grammaticalGender">
+
+            <meta-data
+                android:name="android.app.lib_name"
+                android:value="stampede" />
+
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+
+            <!-- Join link: stampede://join#CODE -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="stampede" />
+            </intent-filter>
+
+            <!-- Keep invite: stampede://keep/<host key>/<secret>. The filter above already
+                 matches every stampede: URL; this one names the Keep links so they stay
+                 claimed if that one is ever narrowed to the join host. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="stampede" android:host="keep" />
+            </intent-filter>
+        </activity>
+
+        <!-- PackageInstaller session status for in-app updates and installs (Updater.java). -->
+        <receiver
+            android:name=".UpdateReceiver"
+            android:exported="false" />
+
+        <service
+            android:name=".RoomService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+    </application>
+</manifest>
