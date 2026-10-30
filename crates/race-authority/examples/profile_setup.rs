@@ -162,6 +162,35 @@ fn built_in(harness: &Harness, track: race_core::TrackId) -> serde_json::Value {
     serde_json::json!({"ticks":600,"native_equivalent":first_mismatch.is_none(),"first_mismatch":first_mismatch,"max_checkpoint_bytes":max_checkpoint})
 }
 
+fn cold_track_control(harness: &Harness) -> serde_json::Value {
+    let config = AuthorityConfig::default().to_bytes().unwrap();
+    let mut native = RaceAuthority::init(&config, 42).unwrap();
+    let mut guest = harness.init(&config);
+    for tick in 1..=4 {
+        let now = n::Time::at_tick(tick, 60).unwrap();
+        if tick == 3 {
+            let event = n::Event::Control(
+                race_session::authority::Control::SetTrack(race_core::TrackId::Oasis)
+                    .to_bytes()
+                    .unwrap(),
+            );
+            assert_eq!(
+                guest.event(now, event.clone()),
+                native.on_event(now, event).unwrap()
+            );
+        }
+        assert_eq!(guest.tick(now), native.tick(now).unwrap());
+        let expected = native.checkpoint().unwrap();
+        assert_eq!(guest.checkpoint(), expected);
+        assert_eq!(guest.hash(), native.state_hash().unwrap());
+        if tick == 3 {
+            let mut restored = harness.restore(&config, &expected);
+            assert_eq!(restored.checkpoint(), expected);
+        }
+    }
+    serde_json::json!({"ticks":4,"cold_control_tick":3,"native_equivalent":true})
+}
+
 fn main() {
     let args: Vec<_> = std::env::args_os().skip(1).collect();
     if args.first().is_some_and(|arg| arg == "--decode") {
@@ -176,13 +205,17 @@ fn main() {
     assert_eq!(args.len(), 1, "usage: profile_setup REPORT.json");
     let output = &args[0];
     std::panic::set_hook(Box::new(|_| {}));
-    let harness = Harness::measurement();
+    let harness = match std::env::var_os("RACE_AUTHORITY_PACKED_COMPONENT") {
+        Some(path) => Harness::measurement_component(std::path::Path::new(&path)),
+        None => Harness::measurement(),
+    };
     let mut scenarios = Vec::new();
-    for name in ["savanna", "oasis", "custom-race"] {
+    for name in ["savanna", "oasis", "cold-track-control", "custom-race"] {
         harness.clear_costs();
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| match name {
             "savanna" => built_in(&harness, race_core::TrackId::Savanna),
             "oasis" => built_in(&harness, race_core::TrackId::Oasis),
+            "cold-track-control" => cold_track_control(&harness),
             _ => compare_race(&harness),
         }));
         let result = match result {
@@ -198,7 +231,7 @@ fn main() {
         };
         scenarios
             .push(serde_json::json!({"scenario":name,"result":result,"costs":harness.costs()}));
-        let report = serde_json::json!({"qualification":false,"profile":"setup-measurement","fuel_per_call":1_000_000_000u64,"engine":"wasmtime","engine_version":"50.0.0","arch":std::env::consts::ARCH,"os":std::env::consts::OS,"scenarios":scenarios});
+        let report = serde_json::json!({"qualification":false,"profile":"setup-measurement","fuel_per_call":1_000_000_000u64,"engine":"wasmtime","engine_version":"50.0.1","arch":std::env::consts::ARCH,"os":std::env::consts::OS,"scenarios":scenarios});
         std::fs::write(&output, serde_json::to_vec_pretty(&report).unwrap()).unwrap();
     }
 }

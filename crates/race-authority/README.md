@@ -71,3 +71,13 @@ tests enforce the operation budgets above. Ordinary-frame timing, cold
 race startup, restore and exact-state mismatches are reported separately.
 `profile_setup --decode IMAGE.bin OUTPUT.json` inspects retained first-party
 checkpoint images for field-level diagnosis.
+
+The setup profiler includes an explicit cold Savanna-to-Oasis controller change
+at tick 3, followed by exact native commands, checkpoint/hash and fresh-restore
+checks. Its fuel/time measurements remain local diagnostics, with
+`qualification: false`; they do not relax worker deadlines.
+
+For a local baseline using retained first-party bytes, the profiler alone accepts
+`RACE_AUTHORITY_PACKED_COMPONENT` instead of a raw core. Both paths share the
+same size/structure/import/engine checks. Qualification tests continue to use
+their original core-loading path and budgets.

@@ -129,6 +129,16 @@ impl Harness {
     pub(crate) fn measurement() -> Self {
         Self::load(Profile::Measurement)
     }
+    pub(crate) fn measurement_component(path: &std::path::Path) -> Self {
+        use std::io::Read;
+        let mut bytes = Vec::new();
+        std::fs::File::open(path)
+            .unwrap()
+            .take(MODULE_LIMIT as u64 + 1)
+            .read_to_end(&mut bytes)
+            .unwrap();
+        Self::load_component(Profile::Measurement, bytes)
+    }
     fn load(profile: Profile) -> Self {
         let path = std::env::var_os("RACE_AUTHORITY_WASM")
             .expect("build the guest and set RACE_AUTHORITY_WASM to its core .wasm file");
@@ -145,6 +155,9 @@ impl Harness {
             .validate(true)
             .encode()
             .unwrap();
+        Self::load_component(profile, bytes)
+    }
+    fn load_component(profile: Profile, bytes: Vec<u8>) -> Self {
         assert!(bytes.len() <= MODULE_LIMIT);
         let mut modules = 0;
         for payload in wasmparser::Parser::new(0).parse_all(&bytes) {
