@@ -1090,33 +1090,39 @@ impl Track {
         let nz = ((hi.z - lo.z + 2.0 * TERRAIN_MARGIN) / cell).ceil() as usize + 1;
         let mut near_y = vec![0.0; nx * nz];
         let mut dist = vec![0.0; nx * nz];
-        let pts: Vec<(f32, f32, f32, f32)> = self
+        let pts: Vec<(f32, f32, f64, f64)> = self
             .samples
             .iter()
             .step_by(2)
             .filter(|s| !self.bridges.iter().any(|b| b.contains_padded(s.s, self.length, BRIDGE_TERRAIN_PAD)))
             .map(|s| {
-                let (y, w) = if s.surface == Surface::Gap {
+                let (y, w): (f32, f32) = if s.surface == Surface::Gap {
                     (s.pos.y - 25.0, 30.0)
                 } else {
                     (s.pos.y, 1.0)
                 };
-                (s.pos.x, s.pos.z, y, w)
+                (s.pos.x, s.pos.z, y as f64, w as f64)
             })
             .collect();
+        // Reuse row invariants; each cell still reduces points in their original order.
+        let mut dz2 = vec![0.0f32; pts.len()];
         for j in 0..nz {
+            let z = z0 + j as f32 * cell;
+            for (square, &(_, pz, _, _)) in dz2.iter_mut().zip(&pts) {
+                let dz = pz - z;
+                *square = dz * dz;
+            }
             for i in 0..nx {
                 let x = x0 + i as f32 * cell;
-                let z = z0 + j as f32 * cell;
                 let mut wsum = 0.0f64;
                 let mut ysum = 0.0f64;
                 let mut dmin = f32::INFINITY;
-                for &(px, pz, py, pw) in &pts {
-                    let d2 = (px - x) * (px - x) + (pz - z) * (pz - z);
+                for (&(px, _, py, pw), &z2) in pts.iter().zip(&dz2) {
+                    let d2 = (px - x) * (px - x) + z2;
                     dmin = dmin.min(d2);
-                    let w = pw as f64 / ((d2 as f64 + 100.0) * (d2 as f64 + 100.0));
+                    let w = pw / ((d2 as f64 + 100.0) * (d2 as f64 + 100.0));
                     wsum += w;
-                    ysum += w * py as f64;
+                    ysum += w * py;
                 }
                 near_y[j * nx + i] = (ysum / wsum.max(1e-30)) as f32;
                 dist[j * nx + i] = dmin.sqrt();
@@ -1308,5 +1314,196 @@ impl Track {
             }
         }
         out
+    }
+}
+
+#[cfg(test)]
+mod grid_reference_tests {
+    use super::*;
+    fn original_grid(track: &Track) -> TerrainGrid {
+        let (lo, hi) = track.bounds();
+        let cell = 6.0;
+        let x0 = lo.x - TERRAIN_MARGIN;
+        let z0 = lo.z - TERRAIN_MARGIN;
+        let nx = ((hi.x - lo.x + 2.0 * TERRAIN_MARGIN) / cell).ceil() as usize + 1;
+        let nz = ((hi.z - lo.z + 2.0 * TERRAIN_MARGIN) / cell).ceil() as usize + 1;
+        let mut near_y = vec![0.0; nx * nz];
+        let mut dist = vec![0.0; nx * nz];
+        let pts: Vec<(f32, f32, f32, f32)> = track
+            .samples
+            .iter()
+            .step_by(2)
+            .filter(|s| {
+                !track
+                    .bridges
+                    .iter()
+                    .any(|b| b.contains_padded(s.s, track.length, BRIDGE_TERRAIN_PAD))
+            })
+            .map(|s| {
+                let (y, w) = if s.surface == Surface::Gap {
+                    (s.pos.y - 25.0, 30.0)
+                } else {
+                    (s.pos.y, 1.0)
+                };
+                (s.pos.x, s.pos.z, y, w)
+            })
+            .collect();
+        for j in 0..nz {
+            for i in 0..nx {
+                let x = x0 + i as f32 * cell;
+                let z = z0 + j as f32 * cell;
+                let mut wsum = 0.0f64;
+                let mut ysum = 0.0f64;
+                let mut dmin = f32::INFINITY;
+                for &(px, pz, py, pw) in &pts {
+                    let d2 = (px - x) * (px - x) + (pz - z) * (pz - z);
+                    dmin = dmin.min(d2);
+                    let w = pw as f64 / ((d2 as f64 + 100.0) * (d2 as f64 + 100.0));
+                    wsum += w;
+                    ysum += w * py as f64;
+                }
+                near_y[j * nx + i] = (ysum / wsum.max(1e-30)) as f32;
+                dist[j * nx + i] = dmin.sqrt();
+            }
+        }
+        TerrainGrid {
+            x0,
+            z0,
+            cell,
+            nx,
+            nz,
+            near_y,
+            dist,
+        }
+    }
+
+    fn compare(track: &Track) {
+        let expected = original_grid(track);
+        let actual = &track.grid;
+        assert_eq!((actual.nx, actual.nz), (expected.nx, expected.nz));
+        assert_eq!(
+            [
+                actual.x0.to_bits(),
+                actual.z0.to_bits(),
+                actual.cell.to_bits()
+            ],
+            [
+                expected.x0.to_bits(),
+                expected.z0.to_bits(),
+                expected.cell.to_bits()
+            ]
+        );
+        for (kind, actual, expected) in [
+            ("height", &actual.near_y, &expected.near_y),
+            ("distance", &actual.dist, &expected.dist),
+        ] {
+            assert_eq!(actual.len(), expected.len());
+            for (index, (a, b)) in actual.iter().zip(expected).enumerate() {
+                assert_eq!(
+                    a.to_bits(),
+                    b.to_bits(),
+                    "{:?} {kind} cell {index}",
+                    track.id
+                );
+            }
+        }
+    }
+    fn retained(track: &Track) -> Vec<&TrackSample> {
+        track
+            .samples
+            .iter()
+            .step_by(2)
+            .filter(|s| {
+                !track
+                    .bridges
+                    .iter()
+                    .any(|b| b.contains_padded(s.s, track.length, BRIDGE_TERRAIN_PAD))
+            })
+            .collect()
+    }
+    #[test]
+    fn all_builtin_terrain_grids_match_the_original_reduction_at_every_bit() {
+        assert_eq!(TrackId::ALL.len(), 13);
+        for id in TrackId::ALL {
+            compare(&Track::build(&id.def()));
+        }
+    }
+    fn stadium() -> Vec<glam::Vec2> {
+        use glam::Vec2;
+        let mut points = vec![];
+        for i in 0..=100 {
+            points.push(Vec2::new(i as f32 * 2.0, -50.0));
+        }
+        for i in 1..=80 {
+            let angle = -std::f32::consts::FRAC_PI_2 + std::f32::consts::PI * i as f32 / 80.0;
+            points.push(Vec2::new(200.0 + 50.0 * angle.cos(), 50.0 * angle.sin()));
+        }
+        for i in 1..=100 {
+            points.push(Vec2::new(200.0 - i as f32 * 2.0, 50.0));
+        }
+        for i in 1..=80 {
+            let angle = std::f32::consts::FRAC_PI_2 + std::f32::consts::PI * i as f32 / 80.0;
+            points.push(Vec2::new(50.0 * angle.cos(), 50.0 * angle.sin()));
+        }
+        points
+    }
+    #[test]
+    fn valid_custom_hills_and_gap_keep_exact_grid_bits_and_gap_weighting() {
+        use crate::custom::{self, CustomFeature, CustomFeatureKind};
+        let shaped = custom::shape(&stadium(), false, 18.0).unwrap();
+        let mut saved = custom::custom_track_from(
+            &shaped,
+            "Grid hills",
+            TrackId::Savanna,
+            2,
+            180,
+            vec![CustomFeature {
+                kind: CustomFeatureKind::Gap,
+                s_dm: 1000,
+                lateral_dm: 0,
+            }],
+            17,
+        );
+        saved.hills = 2;
+        let track = Track::build(&saved.to_def().unwrap());
+        assert!(track.samples.iter().any(|s| s.pos.y.abs() > 0.1));
+        assert!(retained(&track).iter().any(|s| s.surface == Surface::Gap));
+        compare(&track);
+    }
+    #[test]
+    fn valid_custom_bridge_exercises_filtering_and_keeps_exact_grid_bits() {
+        use crate::custom;
+        let points: Vec<_> = (0..=500)
+            .map(|i| {
+                let angle = 0.9 + std::f32::consts::TAU * i as f32 / 500.0;
+                glam::Vec2::new(150.0 * angle.sin(), 100.0 * angle.sin() * angle.cos())
+            })
+            .collect();
+        let shaped = custom::shape(&points, false, 18.0).unwrap();
+        let mut saved =
+            custom::custom_track_from(&shaped, "Grid bridge", TrackId::Savanna, 2, 180, vec![], 29);
+        saved.hills = 2;
+        let track = Track::build(&saved.to_def().unwrap());
+        assert!(!track.bridges.is_empty());
+        let kept = retained(&track).len();
+        assert!(kept > 0 && kept < track.samples.len().div_ceil(2));
+        compare(&track);
+    }
+    #[test]
+    fn a_synthetic_all_filtered_grid_keeps_zero_heights_and_infinite_distances() {
+        let mut track = Track::build(&TrackId::Training.def());
+        track.bridges = vec![Bridge {
+            s0: 0.0,
+            s1: track.length,
+        }];
+        assert!(retained(&track).is_empty());
+        track.grid = track.compute_grid();
+        compare(&track);
+        assert!(track.grid.near_y.iter().all(|y| y.to_bits() == 0));
+        assert!(track
+            .grid
+            .dist
+            .iter()
+            .all(|d| d.is_infinite() && d.is_sign_positive()));
     }
 }
