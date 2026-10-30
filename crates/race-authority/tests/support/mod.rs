@@ -536,6 +536,6 @@ pub(crate) fn compare_race(harness: &Harness) -> serde_json::Value {
                 .or_insert(fuel);
         }
     }
-    let report = serde_json::json!({"engine":"wasmtime", "engine_version":"50.0.0", "arch":std::env::consts::ARCH, "os":std::env::consts::OS, "profile":harness.profile.name(), "fuel_limits":{"ordinary":FUEL,"preparation":SETUP_FUEL}, "ticks":final_tick, "restore_continuations":7, "component_bytes":harness.component_bytes, "max_checkpoint_bytes":max_checkpoint, "max_fuel":guest.max_fuel});
+    let report = serde_json::json!({"engine":"wasmtime", "engine_version":"50.0.1", "arch":std::env::consts::ARCH, "os":std::env::consts::OS, "profile":harness.profile.name(), "fuel_limits":{"ordinary":FUEL,"preparation":SETUP_FUEL}, "ticks":final_tick, "restore_continuations":7, "component_bytes":harness.component_bytes, "max_checkpoint_bytes":max_checkpoint, "max_fuel":guest.max_fuel});
     report
 }
